@@ -3,27 +3,29 @@
 back="${1:-2h}"
 rrdfile="${2:-sensor.rrd}"
 
-WIDTH=1000
+WIDTH=800
 HEIGHT=200
 
 # https://en.wikipedia.org/wiki/Web_colors
 
+OPACITY=7F
+
 # Red
-COLOR1="#FF5B00"
+COLOR1="#FF5B00${OPACITY}"
 # Forest Green
-COLOR2="#228B22"
+COLOR2="#228B22${OPACITY}"
 # Grey
-COLOR3="#BBBBBB"
+COLOR3="#BBBBBB${OPACITY}"
 # Blue
-COLOR4="#247AFD"
+COLOR4="#247AFD${OPACITY}"
 # Purple
-COLOR5="#BC13FE"
+COLOR5="#BC13FE${OPACITY}"
 # Pale Green
-COLOR6="#98FB98"
+COLOR6="#98FB98${OPACITY}"
 # Light yellow
-COLOR7="#FFE4B5"
+COLOR7="#FFE4B5${OPACITY}"
 # Sienna
-COLOR8="#A0522D"
+COLOR8="#A0522D${OPACITY}"
 
 RRDTOOL=`which rrdtool`
 
@@ -41,14 +43,14 @@ ${RRDTOOL} graph temp.png \
    DEF:t6=${rrdfile}:temp_extension:AVERAGE \
    DEF:t7=${rrdfile}:temp_salle:AVERAGE \
    DEF:t8=${rrdfile}:temp_chambre:AVERAGE \
-   LINE:t1${COLOR1}:"Cave\n" \
-   LINE:t2${COLOR2}:"Jardin\n" \
-   LINE:t3${COLOR3}:"Garage\n" \
-   LINE:t4${COLOR4}:"Terrasse\n" \
-   LINE:t5${COLOR5}:"Toit\n" \
-   LINE:t6${COLOR6}:"Extension\n" \
-   LINE:t7${COLOR7}:"Salle\n" \
-   LINE:t8${COLOR8}:"Chambre\n" \
+   LINE:t1${COLOR1}:" Cave\n" \
+   LINE:t2${COLOR2}:" Jardin\n" \
+   LINE:t3${COLOR3}:" Garage\n" \
+   LINE:t4${COLOR4}:" Terrasse\n" \
+   LINE:t5${COLOR5}:" Toit\n" \
+   LINE:t6${COLOR6}:" Extension\n" \
+   LINE:t7${COLOR7}:" Salle\n" \
+   LINE:t8${COLOR8}:" Chambre\n" \
 && $HOME/.iterm2/imgcat temp.png
 
 ${RRDTOOL} graph humi.png \
@@ -62,11 +64,11 @@ ${RRDTOOL} graph humi.png \
    DEF:t6=${rrdfile}:humi_extension:AVERAGE \
    DEF:t7=${rrdfile}:humi_salle:AVERAGE \
    DEF:t8=${rrdfile}:humi_chambre:AVERAGE \
-   LINE:t1${COLOR1}:"Cave\n" \
-   LINE:t2${COLOR2}:"Jardin\n" \
-   LINE:t6${COLOR6}:"Extension\n" \
-   LINE:t7${COLOR7}:"Salle\n" \
-   LINE:t8${COLOR8}:"Chambre\n" \
+   LINE:t1${COLOR1}:" Cave\n" \
+   LINE:t2${COLOR2}:" Jardin\n" \
+   LINE:t6${COLOR6}:" Extension\n" \
+   LINE:t7${COLOR7}:" Salle\n" \
+   LINE:t8${COLOR8}:" Chambre\n" \
 && $HOME/.iterm2/imgcat humi.png
 
 ${RRDTOOL} graph rain.png \
@@ -76,12 +78,12 @@ ${RRDTOOL} graph rain.png \
    -c BACK#2f2f2f -c CANVAS#0f0f0f -c FONT#efefef \
    --legend-position=east \
    DEF:t5=${rrdfile}:rain_toit:AVERAGE \
-   LINE:t5${COLOR5}:"Toit\n" \
+   LINE:t5${COLOR5}:" Toit     \n" \
 && $HOME/.iterm2/imgcat rain.png
 
 ${RRDTOOL} graph battery.png \
-   -w ${WIDTH} -h ${HEIGHT} -a PNG --slope-mode \
-   -l 0 -u 0.01 --start -${back} --end now \
+   -w ${WIDTH} -h 80 -a PNG --slope-mode \
+   -l 0 -u 1 --start -${back} --end now \
    -t Pluie --vertical-label="mm" \
    -c BACK#2f2f2f -c CANVAS#0f0f0f -c FONT#efefef \
    --legend-position=east \
@@ -90,11 +92,11 @@ ${RRDTOOL} graph battery.png \
    DEF:t6=${rrdfile}:batt_extension:AVERAGE \
    DEF:t7=${rrdfile}:batt_salle:AVERAGE \
    DEF:t8=${rrdfile}:batt_chambre:AVERAGE \
-   LINE:t1${COLOR1}:"Cave\n" \
-   LINE:t2${COLOR2}:"Jardin\n" \
-   LINE:t6${COLOR6}:"Extension\n" \
-   LINE:t7${COLOR7}:"Salle\n" \
-   LINE:t8${COLOR8}:"Chambre\n" \
+   LINE:t1${COLOR1}:" Cave\n" \
+   LINE:t2${COLOR2}:" Jardin\n" \
+   LINE:t6${COLOR6}:" Extension\n" \
+   LINE:t7${COLOR7}:" Salle\n" \
+   LINE:t8${COLOR8}:" Chambre\n" \
 && $HOME/.iterm2/imgcat battery.png
 
 #ADFF2F
