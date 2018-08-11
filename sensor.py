@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 
 from argparse import ArgumentParser, FileType
+from collections import defaultdict
 from configparser import ConfigParser
 from json import JSONDecoder
-from logging import (TimedRotatingFileHandler, Formatter, StreamHandler,
-                     getLogger, DEBUG, ERROR, WARNING)
+from logging import Formatter, StreamHandler, getLogger, DEBUG, ERROR, WARNING
+from logging.handlers import TimedRotatingFileHandler
 from os.path import (isdir, isfile, basename, dirname, join as joinpath,
                      splitext)
 from os import makedirs
 from select import poll, POLLIN
 from subprocess import Popen, PIPE, call
 from sys import modules, stderr
-from time import time as now
+from time import sleep, time as now
 from traceback import format_exc
 
 # pylint: disable-msg=invalid-name
@@ -43,7 +44,7 @@ class RrdStorage:
 
     RRD = 'rrdtool'
 
-    def __init__(self, rrd_filename, sensors):
+    def __init__(self, rrd_filename, sensors, offsets=None):
         self.log = getLogger('rtl.rrd')
         self._rrd = rrd_filename
         # one data feed every 60 seconds, that is every minute
@@ -64,7 +65,7 @@ class RrdStorage:
                     ds.append('DS:%s:GAUGE:%d:0:100' % (sensor, hb))
                 elif kind == 'rain':
                     ds.append('DS:%s:DERIVE:%d:0:100' % (sensor, hb))
-                elif kind == 'battery':
+                elif kind == 'batt':
                     ds.append('DS:%s:GAUGE:%d:0:1' % (sensor, hb))
                 else:
                     raise ValueError('Unsupported sensor: %s' % sensor)
@@ -87,28 +88,36 @@ class RrdStorage:
         self._sensors = {sensor: pos for pos, sensor in enumerate(sensors)}
         self._cache = ['U'] * len(self._sensors)
         self._last = now()
+        self._offsets = offsets or defaultdict(dict)
 
     def push(self, sensor, msg):
         temperature = msg.get('temperature_C', None)
         if temperature is not None:
-            pos = self._sensors['temp_%s' % sensor]
-            self._cache[pos] = '%.1f' % temperature
-            self.log.info('%s temperature: %.1f', sensor, temperature)
+            pos = self._sensors.get('temp_%s' % sensor, None)
+            if pos is not None:
+                temperature += self._offsets[sensor].get('temperature', 0.0)
+                self._cache[pos] = '%.1f' % temperature
+                self.log.info('%s temperature: %.1f', sensor, temperature)
         humidity = msg.get('humidity', None)
         if humidity is not None:
-            pos = self._sensors['humi_%s' % sensor]
-            self._cache[pos] = '%d' % humidity
-            self.log.info('%s humidity: %.1f', sensor, humidity)
+            pos = self._sensors.get('humi_%s' % sensor, None)
+            if pos is not None:
+                self._cache[pos] = '%d' % humidity
+                self.log.info('%s humidity: %.1f', sensor, humidity)
         rain = msg.get('rain', None)
         if rain is not None:
-            pos = self._sensors['rain_%s' % sensor]
-            self._cache[pos] = '%d' % rain
-            self.log.info('%s rain: %.1f', sensor, rain)
+            pos = self._sensors.get('rain_%s' % sensor, None)
+            if pos is not None:
+                self._cache[pos] = '%d' % rain
+                self.log.info('%s rain: %.1f', sensor, rain)
         battery = msg.get('battery', None)
         if battery is not None:
             low = battery.upper() != 'OK'
-            pos = self._sensors['battery_%s' % sensor]
-            self._cache[pos] = '%d' % int(battery)
+            pos = self._sensors.get('batt_%s' % sensor, None)
+            if pos is not None:
+                self._cache[pos] = '%d' % int(low)
+                if low:
+                    self.log.warning('%s battery low', sensor)
         ts = now()
         if ts > self._last + self._step:
             update = 'N:%s' % ':'.join(self._cache)
@@ -140,6 +149,7 @@ class Rtl433Receiver:
         parser.read_file(inifp)
         rrd = None
         sensors = []
+        offsets = defaultdict(dict)
         self._protocols.clear()
         for section in parser.sections():
             self.log.info('Section: %s', section)
@@ -155,13 +165,14 @@ class Rtl433Receiver:
             except Exception as ex:
                 raise RuntimeError('Missing device configuration: %s' % ex)
             self._devices[devid] = section
-            for sensor in 'temperature humidity rain batterry'.split():
+            for sensor in 'temperature humidity rain battery'.split():
                 if parser.has_option(section, sensor):
                     sensors.append('_'.join((sensor[:4], section)))
                 offset_name = '%s_offset' % sensor
                 if parser.has_option(section, offset_name):
                     try:
                         offset = float(parser.get(section, offset_name))
+                        offsets[section][sensor] = offset
                     except ValueError:
                         raise ValueError('%s:%s invalid offset value' %
                                          (section, sensor))
@@ -169,7 +180,7 @@ class Rtl433Receiver:
         if rrd:
             sensors.sort()
             self.log.info('Sensors: %s', ', '.join(sensors))
-            self._rrd = RrdStorage(rrd, sensors)
+            self._rrd = RrdStorage(rrd, sensors, offsets)
 
     def run(self):
         args = '/usr/local/bin/rtl_433 -F json'.split()
@@ -198,13 +209,27 @@ class Rtl433Receiver:
                 for fd, event in ready:
                     if fd == rtl.stderr.fileno():
                         err = rtl.stderr.readline().strip()
-                        self.log.warning(err)
+                        if err:
+                            self.log.warning(err)
                         break
                 if err:
                     continue
                 js = rtl.stdout.readline()
                 if not js:
                     self.log.error('No data, restart')
+                    sleep(0.5)
+                    ready = poller.poll(0.2)
+                    if ready:
+                        for fd, event in ready:
+                            if fd == rtl.stderr.fileno():
+                                err = rtl.stderr.read()
+                                for line in err.split('\n'):
+                                    line = line.strip()
+                                    if line:
+                                        self.log.warning(line)
+                                    if line.startswith('Unable to open'):
+                                        self.log.fatal('No RTL-SDR device')
+                                        self._resume = False
                     return None
                 try:
                     data = decoder.decode(js)
@@ -254,8 +279,6 @@ def configure_logging(verbosity, debug, logfile=None, loggers=None):
         formatter = Formatter('%(message)s')
     default_handlers = []
     for logger in loggers or []:
-        logger.set_formatter(formatter)
-        logger.set_level(loglevel)
         # replicate the handlers of the first loggger to all other handlers
         # which have not been assigned one or more handlers yet
         if not default_handlers and logger.log.handlers:
@@ -273,6 +296,8 @@ def configure_logging(verbosity, debug, logfile=None, loggers=None):
             logger.log.addHandler(TimedRotatingFileHandler(logfile, when='D',
                                                            backupCount=14))
             # those ones are far too verbose
+        logger.set_formatter(formatter)
+        logger.set_level(loglevel)
     return loglevel
 
 
@@ -281,7 +306,7 @@ def main():
 
     debug = True
     try:
-        default_ini = '.'.join(splitext(basename(__file__))[0], 'ini')
+        default_ini = '.'.join((splitext(basename(__file__))[0], 'ini'))
         argparser = ArgumentParser(description=modules[__name__].__doc__)
         argparser.add_argument('-i', '--ini',
                                default=default_ini,
