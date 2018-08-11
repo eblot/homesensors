@@ -3,9 +3,10 @@
 from argparse import ArgumentParser, FileType
 from configparser import ConfigParser
 from json import JSONDecoder
-from logging import (FileHandler, Formatter, StreamHandler, getLogger,
-                     DEBUG, ERROR, WARNING)
-from os.path import isdir, isfile, basename, dirname, join as joinpath
+from logging import (TimedRotatingFileHandler, Formatter, StreamHandler,
+                     getLogger, DEBUG, ERROR, WARNING)
+from os.path import (isdir, isfile, basename, dirname, join as joinpath,
+                     splitext)
 from os import makedirs
 from select import poll, POLLIN
 from subprocess import Popen, PIPE, call
@@ -45,13 +46,14 @@ class RrdStorage:
     def __init__(self, rrd_filename, sensors):
         self.log = getLogger('rtl.rrd')
         self._rrd = rrd_filename
+        # one data feed every 60 seconds, that is every minute
         self._step = 60
         self._heartbeat = self._step*4
         if not isfile(self._rrd):
             rrd_dir = dirname(self._rrd)
             if rrd_dir and rrd_dir != '.' and not isdir(rrd_dir):
                 makedirs(rrd_dir)
-            self.log.warn('Creating RRD file %s', basename(self._rrd))
+            self.log.warning('Creating RRD file %s', basename(self._rrd))
             ds = []
             hb = self._heartbeat
             for sensor in sensors:
@@ -62,22 +64,20 @@ class RrdStorage:
                     ds.append('DS:%s:GAUGE:%d:0:100' % (sensor, hb))
                 elif kind == 'rain':
                     ds.append('DS:%s:DERIVE:%d:0:100' % (sensor, hb))
+                elif kind == 'battery':
+                    ds.append('DS:%s:GAUGE:%d:0:1' % (sensor, hb))
                 else:
                     raise ValueError('Unsupported sensor: %s' % sensor)
             args = [self.RRD, 'create', self._rrd,
                     '--start', '-%d' % self._step,
                     '--step', '%d' % self._step]
             args.extend(ds)
-            args.extend(('RRA:AVERAGE:0.50:1:60',
-                         'RRA:AVERAGE:0.50:10:1000',
-                         'RRA:AVERAGE:0.50:60:1000',
-                         'RRA:AVERAGE:0.50:1440:10y',
-                         'RRA:MIN:0.50:1:10',
-                         'RRA:MAX:0.50:1:10',
-                         'RRA:LAST:0.50:1:10',
-                         'RRA:MIN:0.50:1440:10y',
-                         'RRA:MAX:0.50:1440:10y',
-                         'RRA:LAST:0.50:1440:10y'))
+            args.extend(('RRA:AVERAGE:0.50:1:1h',     # each min, 1 hour
+                         'RRA:AVERAGE:0.50:5:1y',     # 5 min, 1 year
+                         'RRA:AVERAGE:0.50:60:10y',   # 1 hour, 10 year
+                         'RRA:MIN:0.50:1440:10y',     # 1 day, 10 year
+                         'RRA:MAX:0.50:1440:10y',     # 1 day, 10 year
+                         'RRA:LAST:0.50:1:10'))       # each min, 10 min
             self.log.debug("Args: %s", ' '.join(args))
             rc = call(args)
             if rc:
@@ -103,12 +103,12 @@ class RrdStorage:
         if rain is not None:
             pos = self._sensors['rain_%s' % sensor]
             self._cache[pos] = '%d' % rain
-            self.log.info('%s rain: %.1f', sensor,rain)
+            self.log.info('%s rain: %.1f', sensor, rain)
         battery = msg.get('battery', None)
         if battery is not None:
-            if battery.upper() != 'OK':
-                self.log.warning('Battery low report on %s: %s',
-                                 sensor.split('_', 1)[-1], battery)
+            low = battery.upper() != 'OK'
+            pos = self._sensors['battery_%s' % sensor]
+            self._cache[pos] = '%d' % int(battery)
         ts = now()
         if ts > self._last + self._step:
             update = 'N:%s' % ':'.join(self._cache)
@@ -155,9 +155,16 @@ class Rtl433Receiver:
             except Exception as ex:
                 raise RuntimeError('Missing device configuration: %s' % ex)
             self._devices[devid] = section
-            for sensor in 'temperature humidity rain'.split():
+            for sensor in 'temperature humidity rain batterry'.split():
                 if parser.has_option(section, sensor):
                     sensors.append('_'.join((sensor[:4], section)))
+                offset_name = '%s_offset' % sensor
+                if parser.has_option(section, offset_name):
+                    try:
+                        offset = float(parser.get(section, offset_name))
+                    except ValueError:
+                        raise ValueError('%s:%s invalid offset value' %
+                                         (section, sensor))
             self._protocols.add(protocol)
         if rrd:
             sensors.sort()
@@ -263,7 +270,8 @@ def configure_logging(verbosity, debug, logfile=None, loggers=None):
                 if isinstance(handler, StreamHandler):
                     # remove all StreamHandlers
                     logger.log.removeHandler(handler)
-            logger.log.addHandler(FileHandler(logfile))
+            logger.log.addHandler(TimedRotatingFileHandler(logfile, when='D',
+                                                           backupCount=14))
             # those ones are far too verbose
     return loglevel
 
@@ -273,8 +281,10 @@ def main():
 
     debug = True
     try:
+        default_ini = '.'.join(splitext(basename(__file__))[0], 'ini')
         argparser = ArgumentParser(description=modules[__name__].__doc__)
-        argparser.add_argument('-i', '--ini', required=True,
+        argparser.add_argument('-i', '--ini',
+                               default=default_ini,
                                type=FileType('rt'),
                                help='configuration file')
         argparser.add_argument('-l', '--log',
