@@ -84,7 +84,7 @@ ${RRDTOOL} graph rain.png \
 ${RRDTOOL} graph battery.png \
    -w ${WIDTH} -h 80 -a PNG --slope-mode \
    -l 0 -u 1 --start -${back} --end now \
-   -t Pluie --vertical-label="mm" \
+   -t "Alerte batterie" --vertical-label="mm" \
    -c BACK#2f2f2f -c CANVAS#0f0f0f -c FONT#efefef \
    --legend-position=east \
    DEF:t1=${rrdfile}:batt_cave:AVERAGE \
