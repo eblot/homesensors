@@ -3,4 +3,5 @@
 *.rrd
 *.png
 *.out
+*.pid
 old/

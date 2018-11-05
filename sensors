@@ -1,0 +1,27 @@
+#! /bin/sh
+# /etc/init.d/sensors
+#
+
+case "$1" in
+  start)
+    echo "Starting home sensors"
+    /usr/local/homesensors/sensor.py -vvv -d \
+	    -l /usr/local/homesensors/sensor.log -d \
+	    -i /usr/local/homesensors/sensor.ini &
+    echo $! > /usr/local/homesensors/sensor.pid 
+    ;;
+  stop)
+    echo "Stopping home sensors"
+    if [ -f /usr/local/homesensors/sensor.pid ]; then
+        kill `cat /usr/local/homesensors/sensor.pid`
+        rm /usr/local/homesensors/sensor.pid
+    fi
+    ;;
+  *)
+    echo "Usage: /etc/init.d/blah {start|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0
+

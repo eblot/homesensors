@@ -1,7 +1,9 @@
 #!/bin/sh
 
+BASEDIR=$(dirname $0)
+
 back="${1:-2h}"
-rrdfile="${2:-sensor.rrd}"
+rrdfile="${2:-${BASEDIR}/sensor.rrd}"
 
 WIDTH=800
 HEIGHT=200
@@ -92,11 +94,16 @@ ${RRDTOOL} graph battery.png \
    DEF:t6=${rrdfile}:batt_extension:AVERAGE \
    DEF:t7=${rrdfile}:batt_salle:AVERAGE \
    DEF:t8=${rrdfile}:batt_chambre:AVERAGE \
-   LINE:t1${COLOR1}:" Cave\n" \
-   LINE:t2${COLOR2}:" Jardin\n" \
-   LINE:t6${COLOR6}:" Extension\n" \
-   LINE:t7${COLOR7}:" Salle\n" \
-   LINE:t8${COLOR8}:" Chambre\n" \
+   CDEF:st1=t1,0.2,* \
+   CDEF:st2=t2,0.3,* \
+   CDEF:st6=t6,0.4,* \
+   CDEF:st7=t7,0.5,* \
+   CDEF:st8=t8,0.6,* \
+   LINE:st1${COLOR1}:" Cave\n" \
+   LINE:st2${COLOR2}:" Jardin\n" \
+   LINE:st6${COLOR6}:" Extension\n" \
+   LINE:st7${COLOR7}:" Salle\n" \
+   LINE:st8${COLOR8}:" Chambre\n" \
 && $HOME/.iterm2/imgcat battery.png
 
 #ADFF2F
